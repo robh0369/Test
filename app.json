@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Pirate Puzzle",
+    "slug": "pirate-puzzle",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "backgroundColor": "#1a6b8a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.example.piratepuzzle"
+    },
+    "android": {
+      "package": "com.example.piratepuzzle",
+      "adaptiveIcon": {
+        "backgroundColor": "#1a6b8a"
+      }
+    }
+  }
+}
