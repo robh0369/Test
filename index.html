@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>🏴‍☠️ Pirate Puzzle</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #1a6b8a;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+    }
+
+    #app {
+      display: flex; flex-direction: column;
+      height: 100vh; height: 100dvh;
+    }
+
+    #header {
+      flex-shrink: 0;
+      text-align: center;
+      color: #FFD600;
+      font-size: 22px; font-weight: bold;
+      padding: 8px 0 4px;
+    }
+
+    #board-wrap {
+      flex-shrink: 0;
+      display: flex; justify-content: center;
+    }
+
+    #board {
+      display: grid;
+      background: #D4A574;
+      border: 4px solid #8B4513;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .slot {
+      position: relative;
+      border: 1.5px dashed rgba(255,255,255,0.35);
+      overflow: hidden;
+    }
+    .slot.filled { border: 2px solid #FFD600; }
+
+    .slot-hint {
+      position: absolute; inset: 0;
+      opacity: 0.18;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .slot.filled .slot-hint { opacity: 0; }
+
+    .slot-piece {
+      position: absolute; inset: 0;
+    }
+
+    #tray {
+      flex: 1;
+      background: #8B4513;
+      border-top: 5px solid #FFD700;
+      display: flex; flex-direction: row;
+      align-items: center;
+      overflow-x: auto; overflow-y: hidden;
+      padding: 6px 8px; gap: 6px;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-x;
+    }
+
+    .piece {
+      flex-shrink: 0;
+      border: 2.5px solid #FFD700;
+      border-radius: 5px;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    #ghost {
+      position: fixed;
+      display: none;
+      pointer-events: none;
+      z-index: 9999;
+      border: 2.5px solid #FFD700;
+      border-radius: 5px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+    }
+
+    /* snap flash on slot */
+    @keyframes snapFlash {
+      0%   { background: rgba(255,214,0,0.5); transform: scale(0.92); }
+      100% { background: transparent;         transform: scale(1); }
+    }
+    .slot.snap-anim { animation: snapFlash 0.3s ease-out; }
+
+    /* celebration */
+    #celebration {
+      display: none; position: fixed; inset: 0;
+      z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    #celebration.active { display: flex; }
+
+    #cel-card {
+      background: rgba(26,107,138,0.95);
+      border: 4px solid #FFD600;
+      border-radius: 24px;
+      padding: 28px 36px;
+      text-align: center;
+      animation: popIn .5s cubic-bezier(.175,.885,.32,1.275) both;
+    }
+    @keyframes popIn {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    #cel-title { font-size: 32px; font-weight: bold; color: #FFD600; margin-bottom: 8px; }
+    #cel-sub   { font-size: 18px; color: white; margin-bottom: 22px; }
+    #restart   {
+      background: #FFD600; color: #111;
+      font-size: 19px; font-weight: bold;
+      border: none; border-radius: 50px;
+      padding: 12px 28px; cursor: pointer;
+    }
+
+    .confetti-p {
+      position: fixed; pointer-events: none; z-index: 998;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <div id="header">🏴‍☠️ Pirate Puzzle!</div>
+  <div id="board-wrap"><div id="board"></div></div>
+  <div id="tray"></div>
+</div>
+
+<div id="ghost"></div>
+
+<div id="celebration">
+  <div id="cel-card">
+    <div id="cel-title">🏴‍☠️ YOU DID IT! 🏴‍☠️</div>
+    <div id="cel-sub">Ahoy, brave pirate!</div>
+    <button id="restart" onclick="startGame()">Play Again! ⚓</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const COLS = 4, ROWS = 5;
+const SVG_W = 400, SVG_H = 500;
+const SNAP = 70;
+
+const boardEl = document.getElementById('board');
+const trayEl  = document.getElementById('tray');
+const ghost   = document.getElementById('ghost');
+const celEl   = document.getElementById('celebration');
+
+let S = 80; // piece size in px (computed per device)
+let placed = new Set();
+let dragData = null;
+let shipUrl = null;
+
+// ── SVG Ship ──────────────────────────────────────────────────────────────────
+
+function sunRays() {
+  let s = '';
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4;
+    const x1 = (355 + Math.cos(a) * 44).toFixed(1);
+    const y1 = (58  + Math.sin(a) * 44).toFixed(1);
+    const x2 = (355 + Math.cos(a) * 60).toFixed(1);
+    const y2 = (58  + Math.sin(a) * 60).toFixed(1);
+    s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#FFD600" stroke-width="5" stroke-linecap="round"/>`;
+  }
+  return s;
+}
+
+function buildShipSVG() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500" width="400" height="500">
+<defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#5BC8F5"/><stop offset="1" stop-color="#C8EDFF"/>
+  </linearGradient>
+  <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1E88E5"/><stop offset="1" stop-color="#0D47A1"/>
+  </linearGradient>
+</defs>
+
+<!-- Sky -->
+<rect x="0" y="0" width="400" height="310" fill="url(#sky)"/>
+
+<!-- Sun + rays -->
+<circle cx="355" cy="58" r="38" fill="#FFD600"/>
+${sunRays()}
+
+<!-- Clouds -->
+<ellipse cx="55"  cy="70" rx="38" ry="22" fill="white"/>
+<ellipse cx="85"  cy="58" rx="30" ry="20" fill="white"/>
+<ellipse cx="25"  cy="64" rx="24" ry="16" fill="white"/>
+<ellipse cx="195" cy="45" rx="32" ry="18" fill="white"/>
+<ellipse cx="220" cy="35" rx="25" ry="16" fill="white"/>
+<ellipse cx="170" cy="42" rx="20" ry="14" fill="white"/>
+
+<!-- Ocean -->
+<rect x="0" y="305" width="400" height="195" fill="url(#sea)"/>
+<path d="M0,305 Q50,290 100,305 Q150,320 200,305 Q250,290 300,305 Q350,320 400,305 L400,330 L0,330 Z" fill="#29B6F6" opacity="0.7"/>
+<path d="M0,330 Q60,315 120,330 Q180,345 240,330 Q300,315 360,330 Q380,335 400,330 L400,355 L0,355 Z" fill="#0288D1" opacity="0.6"/>
+<ellipse cx="80"  cy="310" rx="14" ry="5" fill="white" opacity="0.6"/>
+<ellipse cx="240" cy="308" rx="12" ry="4" fill="white" opacity="0.5"/>
+<ellipse cx="350" cy="312" rx="10" ry="4" fill="white" opacity="0.6"/>
+
+<!-- Hull -->
+<rect x="40" y="290" width="320" height="165" rx="22" fill="#6D3A1F"/>
+<rect x="40" y="290" width="320" height="18"  rx="10" fill="#8B4513"/>
+<path d="M60,455 Q200,475 340,455 L320,455 Q200,465 80,455 Z" fill="#4A2510"/>
+
+<!-- Deck rail -->
+<rect x="44" y="284" width="312" height="16" rx="8" fill="#A0522D"/>
+<rect x="44" y="268" width="312" height="10" rx="5" fill="#A0522D"/>
+<rect x="70"  y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+<rect x="110" y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+<rect x="150" y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+<rect x="190" y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+<rect x="230" y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+<rect x="270" y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+<rect x="310" y="272" width="8" height="28" rx="3" fill="#8B4513"/>
+
+<!-- Portholes -->
+<circle cx="110" cy="355" r="18" fill="#3E2723"/>
+<circle cx="110" cy="355" r="13" fill="#1A1A2E"/>
+<circle cx="106" cy="349" r="4"  fill="#4FC3F7" opacity="0.5"/>
+<circle cx="200" cy="355" r="18" fill="#3E2723"/>
+<circle cx="200" cy="355" r="13" fill="#1A1A2E"/>
+<circle cx="196" cy="349" r="4"  fill="#4FC3F7" opacity="0.5"/>
+<circle cx="290" cy="355" r="18" fill="#3E2723"/>
+<circle cx="290" cy="355" r="13" fill="#1A1A2E"/>
+<circle cx="286" cy="349" r="4"  fill="#4FC3F7" opacity="0.5"/>
+
+<!-- Cannons -->
+<rect   x="88"  y="368" width="44" height="18" rx="9" fill="#757575"/>
+<circle cx="130" cy="377" r="9" fill="#616161"/>
+<rect   x="80"  y="371" width="12" height="12" rx="2" fill="#5D4037"/>
+<rect   x="268" y="368" width="44" height="18" rx="9" fill="#757575"/>
+<circle cx="270" cy="377" r="9" fill="#616161"/>
+<rect   x="308" y="371" width="12" height="12" rx="2" fill="#5D4037"/>
+
+<!-- Main mast + cross-beam + crow's nest -->
+<rect x="188" y="72"  width="14" height="220" rx="4" fill="#5D4037"/>
+<rect x="130" y="110" width="130" height="10" rx="4" fill="#6D4C41"/>
+<rect x="174" y="96"  width="42"  height="24" rx="6" fill="#8D6E63"/>
+
+<!-- Fore mast -->
+<rect x="305" y="120" width="10" height="170" rx="3" fill="#5D4037"/>
+<rect x="272" y="155" width="76" height="8"   rx="3" fill="#6D4C41"/>
+
+<!-- Main sail -->
+<polygon points="135,120 325,120 310,278 150,278" fill="#FFFFF0" stroke="#D4C5A9" stroke-width="2"/>
+<line x1="195" y1="122" x2="188" y2="276" stroke="#D4C5A9" stroke-width="1.5" opacity="0.7"/>
+<line x1="255" y1="122" x2="262" y2="276" stroke="#D4C5A9" stroke-width="1.5" opacity="0.7"/>
+
+<!-- Skull on sail -->
+<circle cx="222" cy="182" r="22" fill="#1A1A1A"/>
+<circle cx="215" cy="178" r="6"  fill="#FFFFF0"/>
+<circle cx="229" cy="178" r="6"  fill="#FFFFF0"/>
+<path d="M219,188 L222,193 L225,188 Z" fill="#1A1A1A"/>
+<rect x="212" y="194" width="6" height="7" rx="1" fill="#FFFFF0"/>
+<rect x="219" y="194" width="6" height="7" rx="1" fill="#FFFFF0"/>
+<rect x="226" y="194" width="6" height="7" rx="1" fill="#FFFFF0"/>
+<line x1="198" y1="215" x2="246" y2="240" stroke="#1A1A1A" stroke-width="7" stroke-linecap="round"/>
+<line x1="246" y1="215" x2="198" y2="240" stroke="#1A1A1A" stroke-width="7" stroke-linecap="round"/>
+<circle cx="196" cy="213" r="8" fill="#1A1A1A"/>
+<circle cx="248" cy="213" r="8" fill="#1A1A1A"/>
+<circle cx="196" cy="242" r="8" fill="#1A1A1A"/>
+<circle cx="248" cy="242" r="8" fill="#1A1A1A"/>
+
+<!-- Jolly Roger flag -->
+<rect x="188" y="48" width="58" height="36" rx="3" fill="#1A1A1A"/>
+<circle cx="210" cy="62" r="8" fill="#FFFFF0"/>
+<circle cx="207" cy="60" r="2.5" fill="#1A1A1A"/>
+<circle cx="213" cy="60" r="2.5" fill="#1A1A1A"/>
+<line x1="203" y1="72" x2="220" y2="78" stroke="#FFFFF0" stroke-width="3" stroke-linecap="round"/>
+<line x1="220" y1="72" x2="203" y2="78" stroke="#FFFFF0" stroke-width="3" stroke-linecap="round"/>
+<circle cx="188" cy="44" r="5" fill="#FFD600"/>
+
+<!-- Fore sail -->
+<polygon points="278,163 378,163 368,285 272,285" fill="#FFFFF0" stroke="#D4C5A9" stroke-width="2" opacity="0.95"/>
+<line x1="325" y1="185" x2="325" y2="265" stroke="#D4C5A9" stroke-width="2" opacity="0.6"/>
+<line x1="300" y1="215" x2="350" y2="215" stroke="#D4C5A9" stroke-width="2" opacity="0.6"/>
+
+<!-- Bow decoration -->
+<path d="M40,350 Q20,340 18,310 Q16,295 40,292" stroke="#FFB300" stroke-width="6" fill="none" stroke-linecap="round"/>
+<circle cx="18" cy="306" r="7" fill="#FFB300"/>
+
+<!-- Stern + "ARR" plate -->
+<path d="M360,350 Q382,340 383,315 Q384,295 360,290" stroke="#FFB300" stroke-width="6" fill="none" stroke-linecap="round"/>
+<rect x="352" y="300" width="34" height="22" rx="4" fill="#FFD600"/>
+<text x="355" y="315" font-size="10" fill="#8B4513" font-weight="bold">ARR</text>
+
+<!-- Anchor -->
+<rect x="192" y="403" width="16" height="9" rx="3" fill="#9E9E9E"/>
+<circle cx="200" cy="420" r="12" fill="none" stroke="#9E9E9E" stroke-width="5"/>
+<line x1="200" y1="408" x2="200" y2="440" stroke="#9E9E9E" stroke-width="5" stroke-linecap="round"/>
+<line x1="184" y1="440" x2="216" y2="440" stroke="#9E9E9E" stroke-width="5" stroke-linecap="round"/>
+<line x1="184" y1="428" x2="192" y2="440" stroke="#9E9E9E" stroke-width="3" stroke-linecap="round"/>
+<line x1="216" y1="428" x2="208" y2="440" stroke="#9E9E9E" stroke-width="3" stroke-linecap="round"/>
+
+<!-- Rope coil on deck -->
+<circle cx="155" cy="285" r="9" fill="none" stroke="#A0522D" stroke-width="4"/>
+<circle cx="155" cy="285" r="4" fill="#8B4513"/>
+
+<!-- Small flag on fore mast -->
+<polygon points="310,120 342,130 310,140" fill="#FF1744"/>
+</svg>`;
+}
+
+function getShipUrl() {
+  if (!shipUrl) {
+    const blob = new Blob([buildShipSVG()], { type: 'image/svg+xml' });
+    shipUrl = URL.createObjectURL(blob);
+  }
+  return shipUrl;
+}
+
+// ── Layout helpers ────────────────────────────────────────────────────────────
+
+function calcS() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight || window.screen.height;
+  const headerH = document.getElementById('header').getBoundingClientRect().height || 46;
+  const trayExtras = 21; // border + padding
+  const availH = vh - headerH - trayExtras;
+  // ROWS rows for board + 1 row for tray
+  return Math.floor(Math.min(vw / COLS, availH / (ROWS + 1)));
+}
+
+function setPieceBg(el, col, row) {
+  el.style.backgroundImage    = `url("${getShipUrl()}")`;
+  el.style.backgroundSize     = `${S * COLS}px ${S * ROWS}px`;
+  el.style.backgroundRepeat   = 'no-repeat';
+  el.style.backgroundPosition = `-${col * S}px -${row * S}px`;
+  el.style.width  = S + 'px';
+  el.style.height = S + 'px';
+}
+
+// ── Game ──────────────────────────────────────────────────────────────────────
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function startGame() {
+  S = calcS();
+  placed.clear();
+  dragData = null;
+  ghost.style.display = 'none';
+  celEl.classList.remove('active');
+  document.querySelectorAll('.confetti-p').forEach(p => p.remove());
+
+  // Board
+  boardEl.innerHTML = '';
+  boardEl.style.width  = (S * COLS) + 'px';
+  boardEl.style.height = (S * ROWS) + 'px';
+  boardEl.style.gridTemplateColumns = `repeat(${COLS}, ${S}px)`;
+  boardEl.style.gridTemplateRows    = `repeat(${ROWS}, ${S}px)`;
+
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const slot = document.createElement('div');
+      slot.className = 'slot';
+      slot.dataset.col = col;
+      slot.dataset.row = row;
+      slot.style.width = slot.style.height = S + 'px';
+
+      // Faint hint so child can see where each piece belongs
+      const hint = document.createElement('div');
+      hint.className = 'slot-hint';
+      setPieceBg(hint, col, row);
+      slot.appendChild(hint);
+
+      boardEl.appendChild(slot);
+    }
+  }
+
+  // Tray pieces (shuffled)
+  trayEl.innerHTML = '';
+  const pieces = [];
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      pieces.push({ col, row, id: `${row}_${col}` });
+    }
+  }
+  shuffle(pieces);
+
+  pieces.forEach(p => {
+    const el = document.createElement('div');
+    el.className = 'piece';
+    el.dataset.id  = p.id;
+    el.dataset.col = p.col;
+    el.dataset.row = p.row;
+    setPieceBg(el, p.col, p.row);
+    el.addEventListener('pointerdown', onPointerDown);
+    trayEl.appendChild(el);
+  });
+}
+
+// ── Drag & Drop ───────────────────────────────────────────────────────────────
+
+function onPointerDown(e) {
+  e.preventDefault();
+  const piece = e.currentTarget;
+  const rect  = piece.getBoundingClientRect();
+  const col   = +piece.dataset.col;
+  const row   = +piece.dataset.row;
+  const offX  = e.clientX - rect.left;
+  const offY  = e.clientY - rect.top;
+
+  ghost.style.width  = S + 'px';
+  ghost.style.height = S + 'px';
+  ghost.style.left   = rect.left + 'px';
+  ghost.style.top    = rect.top  + 'px';
+  setPieceBg(ghost, col, row);
+  ghost.style.display = 'block';
+
+  piece.style.opacity = '0.2';
+  dragData = { piece, col, row, offX, offY };
+
+  piece.setPointerCapture(e.pointerId);
+  piece.addEventListener('pointermove',   onPointerMove);
+  piece.addEventListener('pointerup',     onPointerUp);
+  piece.addEventListener('pointercancel', onPointerCancel);
+}
+
+function onPointerMove(e) {
+  e.preventDefault();
+  if (!dragData) return;
+  ghost.style.left = (e.clientX - dragData.offX) + 'px';
+  ghost.style.top  = (e.clientY - dragData.offY) + 'px';
+}
+
+function onPointerUp(e) {
+  if (!dragData) return;
+  e.preventDefault();
+
+  const { piece, col, row, offX, offY } = dragData;
+  const dropCX = e.clientX - offX + S / 2;
+  const dropCY = e.clientY - offY + S / 2;
+
+  const targetSlot = boardEl.querySelector(`.slot[data-col="${col}"][data-row="${row}"]`);
+  let snapped = false;
+
+  if (targetSlot && !placed.has(piece.dataset.id)) {
+    const sr     = targetSlot.getBoundingClientRect();
+    const slotCX = sr.left + sr.width  / 2;
+    const slotCY = sr.top  + sr.height / 2;
+
+    if (Math.hypot(dropCX - slotCX, dropCY - slotCY) <= SNAP) {
+      snapped = true;
+
+      // Place filled image in slot
+      const img = document.createElement('div');
+      img.className = 'slot-piece';
+      setPieceBg(img, col, row);
+      targetSlot.appendChild(img);
+      targetSlot.classList.add('filled');
+
+      // Snap flash
+      targetSlot.classList.remove('snap-anim');
+      void targetSlot.offsetWidth; // reflow to restart animation
+      targetSlot.classList.add('snap-anim');
+
+      piece.remove();
+      placed.add(piece.dataset.id);
+    }
+  }
+
+  if (!snapped) piece.style.opacity = '1';
+
+  ghost.style.display = 'none';
+  endDrag(e);
+
+  if (placed.size === COLS * ROWS) setTimeout(showCelebration, 450);
+}
+
+function onPointerCancel(e) {
+  if (!dragData) return;
+  dragData.piece.style.opacity = '1';
+  ghost.style.display = 'none';
+  endDrag(e);
+}
+
+function endDrag(e) {
+  if (!dragData) return;
+  const p = dragData.piece;
+  dragData = null;
+  p.removeEventListener('pointermove',   onPointerMove);
+  p.removeEventListener('pointerup',     onPointerUp);
+  p.removeEventListener('pointercancel', onPointerCancel);
+}
+
+// ── Celebration ───────────────────────────────────────────────────────────────
+
+const COLORS = ['#FF6B6B','#FFD93D','#6BCB77','#4D96FF','#FF6BFF','#FF9500','#00C9FF'];
+
+function showCelebration() {
+  celEl.classList.add('active');
+
+  for (let i = 0; i < 30; i++) {
+    const p    = document.createElement('div');
+    p.className = 'confetti-p';
+    const w    = Math.random() > 0.5 ? 8 : 12;
+    const h    = w === 8 ? 16 : 12;
+    const dur  = 2200 + Math.random() * 1200;
+    const delay = Math.random() * 900;
+    const endR = 360 + Math.floor(Math.random() * 360);
+
+    p.style.cssText = `
+      left:${(Math.random()*100).toFixed(1)}vw; top:0;
+      width:${w}px; height:${h}px;
+      background:${COLORS[Math.floor(Math.random()*COLORS.length)]};
+    `;
+    document.body.appendChild(p);
+
+    p.animate([
+      { transform: 'translateY(-60px) rotate(0deg)',        opacity: 1 },
+      { transform: `translateY(110vh) rotate(${endR}deg)`, opacity: 0 }
+    ], { duration: dur, delay, fill: 'forwards', easing: 'linear' });
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener('load', startGame);
+window.addEventListener('resize', () => { if (!dragData) startGame(); });
+</script>
+</body>
+</html>
