@@ -1,22 +1,25 @@
 {
   "expo": {
-    "name": "Pirate Puzzle",
-    "slug": "pirate-puzzle",
+    "name": "Hart Garden",
+    "slug": "hart-garden",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#1a6b8a"
+      "backgroundColor": "#0e0f0c"
     },
     "ios": {
-      "supportsTablet": false,
-      "bundleIdentifier": "com.example.piratepuzzle"
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hart.garden"
     },
     "android": {
-      "package": "com.example.piratepuzzle",
+      "package": "com.hart.garden",
       "adaptiveIcon": {
-        "backgroundColor": "#1a6b8a"
+        "backgroundColor": "#0e0f0c"
       }
-    }
+    },
+    "plugins": [
+      "react-native-webview"
+    ]
   }
 }

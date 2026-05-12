@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "expo": "~53.0.4",
+    "expo-asset": "^55.0.17",
+    "expo-file-system": "^55.0.19",
     "expo-status-bar": "~2.2.1",
     "react": "19.0.0",
     "react-native": "0.79.1",
-    "react-native-svg": "~15.15.4"
+    "react-native-svg": "~15.15.4",
+    "react-native-webview": "^13.16.1"
   },
   "devDependencies": {
     "babel-preset-expo": "~13.2.5"

@@ -1,86 +1,56 @@
-import React, { useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-
-import SlotPositionContext from './src/contexts/SlotPositionContext';
-import { usePuzzleState } from './src/hooks/usePuzzleState';
-import PuzzleBoard from './src/components/PuzzleBoard';
-import PieceTray from './src/components/PieceTray';
-import DragProxy from './src/components/DragProxy';
-import Celebration from './src/components/Celebration';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, ActivityIndicator, Platform, StatusBar } from 'react-native';
+import { WebView } from 'react-native-webview';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
 
 export default function App() {
-  const { state, dispatch, slotPositions, registerSlot } = usePuzzleState();
-  const [activeDrag, setActiveDrag] = useState(null);
+  const [html, setHtml] = useState(null);
 
-  function handleDragStart(dragInfo) {
-    setActiveDrag(dragInfo);
-  }
+  useEffect(() => {
+    (async () => {
+      const [asset] = await Asset.loadAsync(require('./assets/garden.html'));
+      const content = await FileSystem.readAsStringAsync(asset.localUri);
+      setHtml(content);
+    })();
+  }, []);
 
-  function handleDropped(pieceId) {
-    dispatch({ type: 'PLACE_PIECE', pieceId });
-    setActiveDrag(null);
-  }
-
-  function handleCancelled() {
-    setActiveDrag(null);
-  }
-
-  function handleRestart() {
-    dispatch({ type: 'RESET' });
+  if (!html) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator color="#c9a84c" size="large" />
+      </View>
+    );
   }
 
   return (
-    <SlotPositionContext.Provider value={{ slotPositions, registerSlot }}>
-      <SafeAreaView style={styles.container}>
-        <StatusBar style="light" />
-
-        {/* Title */}
-        <View style={styles.header}>
-          <Text style={styles.title}>🏴‍☠️ Pirate Puzzle!</Text>
-        </View>
-
-        {/* Puzzle board */}
-        <PuzzleBoard state={state} />
-
-        {/* Piece tray */}
-        <PieceTray
-          state={state}
-          dispatch={dispatch}
-          onDragStart={handleDragStart}
-          isDragging={activeDrag !== null}
-        />
-
-        {/* Floating drag proxy (above everything) */}
-        {activeDrag && (
-          <DragProxy
-            drag={activeDrag}
-            slotPositions={slotPositions}
-            onDropped={handleDropped}
-            onCancelled={handleCancelled}
-          />
-        )}
-
-        {/* Celebration overlay */}
-        <Celebration visible={state.isComplete} onRestart={handleRestart} />
-      </SafeAreaView>
-    </SlotPositionContext.Provider>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0e0f0c" />
+      <WebView
+        source={{ html, baseUrl: '' }}
+        style={styles.webview}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        domStorageEnabled
+        allowFileAccess
+        mixedContentMode="always"
+        onError={e => console.warn('WebView error', e.nativeEvent)}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a6b8a',
+    backgroundColor: '#0e0f0c',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
-  header: {
-    paddingVertical: 6,
+  loading: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#0e0f0c',
   },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#FFD600',
-    letterSpacing: 1,
-  },
+  webview: { flex: 1 },
 });
